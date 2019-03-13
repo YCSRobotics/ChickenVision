@@ -154,16 +154,20 @@ class WebcamVideoStream:
 # Angles in radians
 
 # image size ratioed to 16:9
-image_width = 9
-image_height = 5
+image_width = 432
+image_height = 240
+
+fieldOfView = 60
 
 # Lifecam 3000 from datasheet
 # Datasheet: https://dl2jx7zfbtwvr.cloudfront.net/specsheets/WEBC1010.pdf
-diagonalView = math.radians(68.5)
+diagonalView = math.radians(fieldOfView)
 
 # 16:9 aspect ratio
-horizontalAspect = 16
-verticalAspect = 9
+horizontalAspect = 9
+verticalAspect = 5
+
+degPerPixel = fieldOfView/image_width
 
 # Reasons for using diagonal aspect is to calculate horizontal field of view.
 diagonalAspect = math.hypot(horizontalAspect, verticalAspect)
@@ -179,7 +183,7 @@ green_blur = 7
 orange_blur = 27
 
 # define range of green of retroreflective tape in HSV
-lower_green = np.array([0, 220, 25])
+lower_green = np.array([82, 0, 225])
 upper_green = np.array([101, 255, 255])
 # define range of orange from cargo ball in HSV
 lower_orange = np.array([0, 193, 92])
@@ -273,6 +277,7 @@ def findTape(contours, image, centerX, centerY):
                     box = cv2.boxPoints(rect)
                     # Not exactly sure
                     box = np.int0(box)
+                    
                     # Draws rotated rectangle
                     cv2.drawContours(image, [box], 0, (23, 184, 80), 3)
 
@@ -327,6 +332,7 @@ def findTape(contours, image, centerX, centerY):
             # If contour angles are opposite
             if (np.sign(tilt1) != np.sign(tilt2)):
                 centerOfTarget = math.floor((cx1 + cx2) / 2)
+                targetWidth = cx2 - cx1
                 # ellipse negative tilt means rotated to right
                 # Note: if using rotated rect (min area rectangle)
                 # negative tilt means rotated to left
@@ -342,12 +348,14 @@ def findTape(contours, image, centerX, centerY):
 
                 # Angle from center of camera to target (what you should pass into gyro)
                 yawToTarget = calculateYaw(centerOfTarget, centerX, H_FOCAL_LENGTH)
+                distanceToTarget = (6/(math.tan(math.radians(targetWidth * degPerPixel))))*2.5
+                
                 # Make sure no duplicates, then append
                 if not targets:
-                    targets.append([centerOfTarget, yawToTarget])
+                    targets.append([centerOfTarget, yawToTarget, distanceToTarget])
                 elif [centerOfTarget, yawToTarget] not in targets:
-                    targets.append([centerOfTarget, yawToTarget])
-
+                    targets.append([centerOfTarget, yawToTarget, distanceToTarget])
+                    
     # Check if there are targets seen
     if (len(targets) > 0):
         # pushes that it sees vision target to network tables
@@ -357,13 +365,15 @@ def findTape(contours, image, centerX, centerY):
         finalTarget = min(targets, key=lambda x: math.fabs(x[1]))
         # Puts the yaw on screen
         # Draws yaw of target + line where center of target is
-        cv2.putText(image, "Yaw: " + str(finalTarget[1]), (40, 40), cv2.FONT_HERSHEY_COMPLEX, .6,
+        cv2.putText(image, "Yaw: " + str(finalTarget[1]), (40, 90), cv2.FONT_HERSHEY_COMPLEX, .6,
+                    (255, 255, 255))
+        cv2.putText(image, "Distance: " + str(finalTarget[2]), (40, 40), cv2.FONT_HERSHEY_COMPLEX, .6,
                     (255, 255, 255))
         cv2.line(image, (finalTarget[0], screenHeight), (finalTarget[0], 0), (255, 0, 0), 2)
 
-        currentAngleError = finalTarget[1]
         # pushes vision target angle to network tables
-        networkTable.putNumber("tapeYaw", currentAngleError)
+        networkTable.putNumber("tapeYaw", finalTarget[1])
+        networkTable.putNumber("tapeDistance", finalTarget[2])
     else:
         # pushes that it deosn't see vision target to network tables
         networkTable.putBoolean("tapeDetected", False)
@@ -617,40 +627,34 @@ if __name__ == "__main__":
         # Tell the CvSink to grab a frame from the camera and put it
         # in the source image.  If there is an error notify the output.
         timestamp, img = cap.read()
+
         # Uncomment if camera is mounted upside down
         # frame = flipImage(img)
         # Comment out if camera is mounted upside down
         frame = img
+
         if timestamp == 0:
             # Send the output the error.
             streamViewer.notifyError(cap.getError());
             # skip the rest of the current iteration
             continue
-        # Checks if you just want camera for driver (No processing), False by default
-        if (networkTable.getBoolean("Driver", False)):
-            cap.autoExpose = True
-            processed = frame
-        else:
-            # Checks if you just want camera for Tape processing , False by default
-            if (networkTable.getBoolean("Tape", False)):
-                # Lowers exposure to 0
-                cap.autoExpose = False
-                boxBlur = blurImg(frame, green_blur)
-                threshold = threshold_video(lower_green, upper_green, boxBlur)
-                processed = findTargets(frame, threshold)
-            else:
-                # Checks if you just want camera for Cargo processing, by dent of everything else being false, true by default
-                cap.autoExpose = True
-                boxBlur = blurImg(frame, orange_blur)
-                threshold = threshold_video(lower_orange, upper_orange, boxBlur)
-                processed = findCargo(frame, threshold)
+
+        # Start processing
+        cap.autoExpose = True
+        boxBlur = blurImg(frame, green_blur)
+        threshold = threshold_video(lower_green, upper_green, boxBlur)
+        processed = findTargets(frame, threshold)
+
         # Puts timestamp of camera on netowrk tables
         networkTable.putNumber("VideoTimestamp", timestamp)
         streamViewer.frame = processed
+
         # update the FPS counter
         fps.update()
+
         # Flushes camera values to reduce latency
         ntinst.flush()
+
     # Doesn't do anything at the moment. You can easily get this working by indenting these three lines
     # and setting while loop to: while fps._numFrames < TOTAL_FRAMES
     fps.stop()
