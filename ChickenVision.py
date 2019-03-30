@@ -347,12 +347,7 @@ def findTape(contours, image, centerX, centerY):
 
                 # Angle from center of camera to target (what you should pass into gyro)
                 yawToTarget = calculateYaw(centerOfTarget, centerX, H_FOCAL_LENGTH)
-                
-                distanceToTarget = 0
-                try:
-                    distanceToTarget = (6/(math.tan(math.radians(targetWidth * degPerPixel))))*2.5
-                except:
-                    pass
+                distanceToTarget = (6/(math.tan(math.radians(targetWidth * degPerPixel))))*2.5
                 
                 # Make sure no duplicates, then append
                 if not targets:
