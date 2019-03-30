@@ -17,6 +17,7 @@ import json
 import sys
 from threading import Thread
 
+from cscore import CameraServer, VideoSource
 from networktables import NetworkTablesInstance
 import cv2
 import numpy as np
@@ -163,8 +164,8 @@ fieldOfView = 60
 diagonalView = math.radians(fieldOfView)
 
 # 16:9 aspect ratio
-horizontalAspect = 13
-verticalAspect = 10
+horizontalAspect = 9
+verticalAspect = 5
 
 degPerPixel = fieldOfView/image_width
 
@@ -182,8 +183,8 @@ green_blur = 7
 orange_blur = 27
 
 # define range of green of retroreflective tape in HSV
-lower_green = np.array([16, 0, 148])
-upper_green = np.array([255, 255, 255])
+lower_green = np.array([82, 0, 225])
+upper_green = np.array([101, 255, 255])
 # define range of orange from cargo ball in HSV
 lower_orange = np.array([0, 193, 92])
 upper_orange = np.array([23, 255, 255])
@@ -484,7 +485,7 @@ configFile = "/boot/frc.json"
 class CameraConfig: pass
 
 
-team = 66
+team = None
 server = False
 cameraConfigs = []
 
@@ -585,11 +586,11 @@ def startCamera(config):
 
 
 if __name__ == "__main__":
-    #if len(sys.argv) >= 2:
-    #    configFile = sys.argv[1]
+    if len(sys.argv) >= 2:
+        configFile = sys.argv[1]
     # read configuration
-    #if not readConfig():
-    #    sys.exit(1)
+    if not readConfig():
+        sys.exit(1)
 
     # start NetworkTables
     ntinst = NetworkTablesInstance.getDefault()
@@ -604,24 +605,24 @@ if __name__ == "__main__":
         ntinst.startClientTeam(team)
 
     # start cameras
-    #cameras = []
-    #streams = []
-    #for cameraConfig in cameraConfigs:
-    #    cs, cameraCapture = startCamera(cameraConfig)
-    #    streams.append(cs)
-    #    cameras.append(cameraCapture)
+    cameras = []
+    streams = []
+    for cameraConfig in cameraConfigs:
+        cs, cameraCapture = startCamera(cameraConfig)
+        streams.append(cs)
+        cameras.append(cameraCapture)
     # Get the first camera
 
-    #webcam = cameras[0]
-    #cameraServer = streams[0]
+    webcam = cameras[0]
+    cameraServer = streams[0]
     # Start thread reading camera
-    cap = cv2.VideoCapture(0)
+    cap = WebcamVideoStream(webcam, cameraServer, image_width, image_height).start()
 
     # (optional) Setup a CvSource. This will send images back to the Dashboard
     # Allocating new images is very expensive, always try to preallocate
     img = np.zeros(shape=(image_height, image_width, 3), dtype=np.uint8)
     # Start thread outputing stream
-    #streamViewer = VideoShow(image_width, image_height, cap, frame=img).start()
+    streamViewer = VideoShow(image_width, image_height, cameraServer, frame=img).start()
     # cap.autoExpose=True;
     tape = False
     fps = FPS().start()
@@ -639,22 +640,19 @@ if __name__ == "__main__":
 
         if timestamp == 0:
             # Send the output the error.
-            #streamViewer.notifyError(cap.getError());
+            streamViewer.notifyError(cap.getError());
             # skip the rest of the current iteration
             continue
 
         # Start processing
-        #cap.autoExpose = False
+        cap.autoExpose = True
         boxBlur = blurImg(frame, green_blur)
         threshold = threshold_video(lower_green, upper_green, boxBlur)
         processed = findTargets(frame, threshold)
 
         # Puts timestamp of camera on netowrk tables
         networkTable.putNumber("VideoTimestamp", timestamp)
-        #streamViewer.frame = processed
-        
-        print("running")
-        cv2.imshow('frame',img)
+        streamViewer.frame = processed
 
         # update the FPS counter
         fps.update()
